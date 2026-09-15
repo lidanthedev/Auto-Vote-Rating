@@ -50,33 +50,65 @@ async function vote(first) {
         }
     }
 
-    document.querySelector('button#vote-button').click()
+    const voteButton = await waitForElement('button#vote-button')
+    voteButton.click()
 
     const project = await getProject()
 
-    const textInputRef = document.querySelector('div.ant-modal-body input[type="text"]')
-    const prototype = Object.getPrototypeOf(textInputRef)
-    const prototypeValueSetter = Object.getOwnPropertyDescriptor(prototype, 'value').set
+    const textInputRef = await waitForElement('div[role="dialog"] input[placeholder="Minecraft Username"]')
+    const prototypeValueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
     prototypeValueSetter.call(textInputRef, project.nick)
     textInputRef.dispatchEvent(new Event('input', { bubbles: true }))
 
-    document.querySelector('div.ant-modal-body button.ant-btn').click()
+    const submitButton = await waitForElement(
+        'div[role="dialog"] button[aria-label="Vote for the Server"]',
+        button => !button.disabled
+    )
+    submitButton.click()
+}
+
+function waitForElement(selector, predicate = () => true) {
+    return new Promise(resolve => {
+        const findElement = () => Array.from(document.querySelectorAll(selector)).find(predicate)
+        const element = findElement()
+
+        if (element) {
+            resolve(element)
+            return
+        }
+
+        const observer = new MutationObserver(() => {
+            const element = findElement()
+            if (element) {
+                observer.disconnect()
+                resolve(element)
+            }
+        })
+
+        observer.observe(document.documentElement, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['disabled']
+        })
+    })
 }
 
 const timer = setInterval(() => {
-    const message = document.querySelector('div.ant-notification')?.innerText
+    const message = document.querySelector('div.ant-notification')?.innerText.replace(/\s+/g, ' ').trim()
     if (message) {
         const request = {}
         request.message = message
-        if (request.message.includes('Thank you for voting')) {
+        const normalizedMessage = request.message.toLowerCase()
+        if (normalizedMessage.includes('thank you for voting')) {
             clearInterval(timer)
             chrome.runtime.sendMessage({successfully: true})
-        } else if (request.message.includes('can vote for this server once per day') || request.message.includes('can vote for this server again tomorrow in')) {
+        } else if (normalizedMessage.includes('can vote for this server once per day') || normalizedMessage.includes('can vote for this server again tomorrow in')) {
             clearInterval(timer)
             chrome.runtime.sendMessage({later: true})
         } else {
             clearInterval(timer)
-            if (request.message.includes('Google ReCaptcha Failure')) {
+            if (normalizedMessage.includes('google recaptcha failure')) {
                 request.ignoreReport = true
             }
             chrome.runtime.sendMessage(request)
